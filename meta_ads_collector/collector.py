@@ -102,6 +102,8 @@ class MetaAdsCollector:
         max_retries: int = DEFAULT_MAX_RETRIES,
         callbacks: Optional[dict[str, Callable]] = None,
         cookies: Optional[Union[dict, str]] = None,
+        brightdata_api_key: Optional[str] = None,
+        brightdata_zone: Optional[str] = None,
     ):
         """
         Initialize the collector.
@@ -127,6 +129,8 @@ class MetaAdsCollector:
             timeout=timeout,
             max_retries=max_retries,
             cookies=cookies,
+            brightdata_api_key=brightdata_api_key,
+            brightdata_zone=brightdata_zone,
         )
         self.rate_limit_delay = rate_limit_delay
         self.jitter = jitter

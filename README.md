@@ -401,6 +401,43 @@ collector = MetaAdsCollector(proxy="host:port:user:pass")
 collector = MetaAdsCollector(proxy="host:port")
 ```
 
+### Bright Data Web Unlocker
+
+Set the API key in the environment to route all Meta Ad Library HTTP calls
+through Bright Data's Web Unlocker request API. The zone defaults to
+`web_unlocker1` and can be overridden with `BRIGHTDATA_ZONE`.
+
+```bash
+export BRIGHTDATA_API_KEY="your-api-key"
+export BRIGHTDATA_ZONE="web_unlocker1"
+meta-ads-collector -q "SaaS" -o ads.json
+```
+
+The same configuration is detected by `MetaAdsClient`, `MetaAdsCollector`,
+and their async equivalents. It can also be supplied explicitly with the
+`brightdata_api_key` and `brightdata_zone` constructor arguments. Never commit
+the API key to the repository.
+
+When using the package as a library, environment variables are read when the
+client or collector is constructed:
+
+```python
+from meta_ads_collector import MetaAdsCollector
+
+# Reads BRIGHTDATA_API_KEY and BRIGHTDATA_ZONE from the process environment.
+collector = MetaAdsCollector()
+
+# Alternatively, pass the values explicitly.
+collector = MetaAdsCollector(
+    brightdata_api_key="your-api-key",
+    brightdata_zone="web_unlocker1",
+)
+```
+
+The package does not load `.env` files automatically. Export the variables,
+source the file in your shell, or load it in your application before creating
+the client.
+
 ### Proxy rotation
 
 ```python

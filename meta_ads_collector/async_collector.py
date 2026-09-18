@@ -106,6 +106,8 @@ class AsyncMetaAdsCollector:
         max_retries: int = DEFAULT_MAX_RETRIES,
         callbacks: dict[str, Callable] | None = None,
         cookies: dict[str, str] | str | None = None,
+        brightdata_api_key: str | None = None,
+        brightdata_zone: str | None = None,
     ) -> None:
         """Initialize the async collector.
 
@@ -125,6 +127,8 @@ class AsyncMetaAdsCollector:
             timeout=timeout,
             max_retries=max_retries,
             cookies=cookies,
+            brightdata_api_key=brightdata_api_key,
+            brightdata_zone=brightdata_zone,
         )
         self.rate_limit_delay = rate_limit_delay
         self.jitter = jitter

@@ -11,12 +11,14 @@ import random
 import re
 import string
 import time
+import uuid
 from typing import Any, Optional, Union
 from urllib.parse import quote
 
 from curl_cffi.requests import Session as CffiSession
 from curl_cffi.requests.exceptions import RequestException as CffiRequestException
 
+from .brightdata import BrightDataConfig, build_brightdata_payload
 from .constants import (
     CHROME_FULL_VERSION,
     CHROME_VERSION,
@@ -119,6 +121,8 @@ class MetaAdsClient:
         retry_delay: float = DEFAULT_RETRY_DELAY,
         max_refresh_attempts: int = 3,
         cookies: Optional[Union[dict, str]] = None,
+        brightdata_api_key: Optional[str] = None,
+        brightdata_zone: Optional[str] = None,
     ):
         """
         Initialize the Meta Ads client.
@@ -147,6 +151,10 @@ class MetaAdsClient:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_refresh_attempts = max_refresh_attempts
+        self._brightdata = BrightDataConfig.from_values(
+            brightdata_api_key, brightdata_zone
+        )
+        self._brightdata_session = uuid.uuid4().hex
 
         # Generate a randomised browser fingerprint for this session
         self._fingerprint: BrowserFingerprint = generate_fingerprint()
@@ -608,11 +616,16 @@ class MetaAdsClient:
             challenge_response = None
             for attempt in range(3):
                 try:
-                    challenge_response = self.session.post(
-                        challenge_url,
-                        headers=challenge_headers,
-                        timeout=self.timeout,
-                    )
+                    if getattr(self, "_brightdata", None) is not None:
+                        challenge_response = self._make_request(
+                            "POST", challenge_url, headers=challenge_headers
+                        )
+                    else:
+                        challenge_response = self.session.post(
+                            challenge_url,
+                            headers=challenge_headers,
+                            timeout=self.timeout,
+                        )
                     break
                 except CffiRequestException as retry_err:
                     logger.warning(
@@ -769,15 +782,34 @@ class MetaAdsClient:
                 )
 
             try:
-                response = self.session.request(
-                    method=method,  # type: ignore[arg-type]
-                    url=url,
-                    params=params,
-                    data=data,
-                    headers=merged_headers,
-                    timeout=self.timeout,
-                    **kwargs,
-                )
+                brightdata = getattr(self, "_brightdata", None)
+                if brightdata is not None:
+                    payload = build_brightdata_payload(
+                        brightdata,
+                        method,
+                        url,
+                        params=params,
+                        data=data,
+                        headers=merged_headers,
+                        session=getattr(self, "_brightdata_session", None),
+                    )
+                    response = self.session.post(
+                        brightdata.endpoint,
+                        json=payload,
+                        headers=brightdata.headers,
+                        timeout=self.timeout,
+                        **kwargs,
+                    )
+                else:
+                    response = self.session.request(
+                        method=method,  # type: ignore[arg-type]
+                        url=url,
+                        params=params,
+                        data=data,
+                        headers=merged_headers,
+                        timeout=self.timeout,
+                        **kwargs,
+                    )
 
                 # Check for rate limiting
                 if response.status_code == 429:

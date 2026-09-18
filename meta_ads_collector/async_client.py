@@ -10,10 +10,12 @@ import json
 import logging
 import random
 import time
+import uuid
 from typing import Any
 
 from curl_cffi.requests import AsyncSession as CffiAsyncSession
 
+from .brightdata import BrightDataConfig, build_brightdata_payload
 from .client import MetaAdsClient
 from .constants import (
     DOC_ID_SEARCH,
@@ -58,6 +60,8 @@ class AsyncMetaAdsClient:
         retry_delay: float = 2.0,
         max_refresh_attempts: int = 3,
         cookies: dict[str, str] | str | None = None,
+        brightdata_api_key: str | None = None,
+        brightdata_zone: str | None = None,
     ) -> None:
         """Initialize the async Meta Ads client.
 
@@ -77,6 +81,10 @@ class AsyncMetaAdsClient:
         self.retry_delay = retry_delay
         self.max_refresh_attempts = max_refresh_attempts
         self._seed_cookies = cookies
+        self._brightdata = BrightDataConfig.from_values(
+            brightdata_api_key, brightdata_zone
+        )
+        self._brightdata_session = uuid.uuid4().hex
 
         # Reuse the sync client's logic helpers via composition.
         # _logic is ONLY used for non-HTTP methods; we never call its
@@ -320,14 +328,31 @@ class AsyncMetaAdsClient:
                     await self._rebuild_client(pool_proxy)
 
             try:
-                response = await self._client.request(
-                    method,
-                    url,
-                    params=params,
-                    data=data,
-                    headers=merged_headers,
-                    timeout=self.timeout,
-                )
+                if self._brightdata is not None:
+                    payload = build_brightdata_payload(
+                        self._brightdata,
+                        method,
+                        url,
+                        params=params,
+                        data=data,
+                        headers=merged_headers,
+                        session=self._brightdata_session,
+                    )
+                    response = await self._client.post(
+                        self._brightdata.endpoint,
+                        json=payload,
+                        headers=self._brightdata.headers,
+                        timeout=self.timeout,
+                    )
+                else:
+                    response = await self._client.request(
+                        method,
+                        url,
+                        params=params,
+                        data=data,
+                        headers=merged_headers,
+                        timeout=self.timeout,
+                    )
 
                 if response.status_code == 429:
                     if self._proxy_pool and pool_proxy:
