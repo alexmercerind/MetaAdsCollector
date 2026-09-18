@@ -10,6 +10,15 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 BRIGHTDATA_REQUEST_URL = "https://api.brightdata.com/request"
 
+# Facebook intermittently returns a small generic error page with HTTP 200
+# through Web Unlocker.  These equivalent logged-out entry points give the
+# bootstrap a few independent chances to obtain a genuine LSD token.
+BRIGHTDATA_BOOTSTRAP_URLS = (
+    "https://www.facebook.com/?locale=en_US",
+    "https://m.facebook.com/?locale=en_US",
+    "https://mbasic.facebook.com/?locale=en_US",
+)
+
 
 @dataclass(frozen=True)
 class BrightDataConfig:

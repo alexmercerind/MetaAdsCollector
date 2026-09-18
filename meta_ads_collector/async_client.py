@@ -15,7 +15,11 @@ from typing import Any
 
 from curl_cffi.requests import AsyncSession as CffiAsyncSession
 
-from .brightdata import BrightDataConfig, build_brightdata_payload
+from .brightdata import (
+    BRIGHTDATA_BOOTSTRAP_URLS,
+    BrightDataConfig,
+    build_brightdata_payload,
+)
 from .client import MetaAdsClient
 from .constants import (
     DOC_ID_SEARCH,
@@ -271,6 +275,8 @@ class AsyncMetaAdsClient:
 
         # Recreate the client
         await self._rebuild_client(proxy_url)
+        if self._brightdata is not None:
+            self._brightdata_session = uuid.uuid4().hex
 
         # Reset session state
         self._tokens = {}
@@ -477,17 +483,38 @@ class AsyncMetaAdsClient:
             init_headers = dict(self._fingerprint.get_default_headers())
             init_headers["sec-fetch-site"] = "none"
 
-            response = await self._make_request(
-                "GET", f"{self.BASE_URL}/", headers=init_headers,
+            bootstrap_urls = (
+                BRIGHTDATA_BOOTSTRAP_URLS
+                if self._brightdata is not None
+                else (f"{self.BASE_URL}/",)
             )
+            response = None
+            html = ""
+            for attempt, bootstrap_url in enumerate(bootstrap_urls, start=1):
+                if self._brightdata is not None and attempt > 1:
+                    self._brightdata_session = uuid.uuid4().hex
 
+                response = await self._make_request(
+                    "GET", bootstrap_url, headers=init_headers,
+                )
+                if response.status_code == 200:
+                    html = response.text
+                    self._tokens = self._extract_tokens(html)
+                    if self._tokens.get("lsd"):
+                        break
+
+                logger.warning(
+                    "Async homepage bootstrap attempt %d/%d returned no usable LSD token",
+                    attempt,
+                    len(bootstrap_urls),
+                )
+
+            assert response is not None
             if response.status_code != 200:
                 raise AuthenticationError(
                     f"Failed to load facebook.com homepage (HTTP {response.status_code})"
                 )
 
-            html = response.text
-            self._tokens = self._extract_tokens(html)
             self._doc_ids = self._extract_doc_ids(html)
 
             # A genuine lsd is mandatory -- never fabricate one.
@@ -661,6 +688,24 @@ class AsyncMetaAdsClient:
             text = text[9:]
 
         data = json.loads(text)
+
+        legacy_error_code = data.get("error") if isinstance(data, dict) else None
+        if legacy_error_code:
+            error_msg = data.get("errorSummary") or data.get("errorDescription") or str(legacy_error_code)
+            logger.warning(
+                "Facebook legacy GraphQL error %s: %s",
+                legacy_error_code,
+                error_msg,
+            )
+            if legacy_error_code == 1357054:
+                await self._async_refresh_session()
+                return {
+                    "ads": [],
+                    "page_info": {},
+                    "session_expired": True,
+                    "error": error_msg,
+                }, None
+            return {"ads": [], "page_info": {}, "error": error_msg}, None
 
         if "errors" in data:
             errors = data["errors"]

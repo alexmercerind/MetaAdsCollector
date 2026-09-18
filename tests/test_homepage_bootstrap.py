@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from meta_ads_collector.client import MetaAdsClient
+from meta_ads_collector.brightdata import BRIGHTDATA_BOOTSTRAP_URLS
 from meta_ads_collector.constants import DOC_ID_SEARCH
 from meta_ads_collector.exceptions import AuthenticationError
 
@@ -127,6 +128,25 @@ class TestHomepageBootstrap:
             client.initialize()
         assert client._initialized is False
 
+    def test_brightdata_retries_error_page_with_fresh_session(self):
+        client = MetaAdsClient(brightdata_api_key="secret")
+        client._make_request = MagicMock(
+            side_effect=[
+                _fake_response(text="<html><title>Error</title></html>"),
+                _fake_response(text=HOMEPAGE_HTML),
+            ]
+        )
+        original_session = client._brightdata_session
+
+        with patch("meta_ads_collector.client.time.sleep"):
+            assert client.initialize() is True
+
+        assert client._make_request.call_count == 2
+        assert client._make_request.call_args_list[0].args[1] == BRIGHTDATA_BOOTSTRAP_URLS[0]
+        assert client._make_request.call_args_list[1].args[1] == BRIGHTDATA_BOOTSTRAP_URLS[1]
+        assert client._brightdata_session != original_session
+        assert client._tokens["lsd"] == "AVeryRealLSD123"
+
     def test_doc_ids_fall_back_to_constants(self):
         """Homepage HTML has no Ad Library doc_ids -> constants are used."""
         search_json = (
@@ -233,6 +253,28 @@ class TestAsyncHomepageBootstrap:
             with pytest.raises(AuthenticationError, match="homepage"):
                 await client.initialize()
             assert client._initialized is False
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_async_brightdata_retries_error_page_with_fresh_session(self):
+        from meta_ads_collector.async_client import AsyncMetaAdsClient
+
+        client = AsyncMetaAdsClient(brightdata_api_key="secret")
+        client._make_request = AsyncMock(
+            side_effect=[
+                _fake_response(text="<html><title>Error</title></html>"),
+                _fake_response(text=HOMEPAGE_HTML),
+            ]
+        )
+        original_session = client._brightdata_session
+        try:
+            assert await client.initialize() is True
+            assert client._make_request.call_count == 2
+            assert client._make_request.call_args_list[0].args[1] == BRIGHTDATA_BOOTSTRAP_URLS[0]
+            assert client._make_request.call_args_list[1].args[1] == BRIGHTDATA_BOOTSTRAP_URLS[1]
+            assert client._brightdata_session != original_session
+            assert client._tokens["lsd"] == "AVeryRealLSD123"
         finally:
             await client.close()
 

@@ -18,7 +18,11 @@ from urllib.parse import quote
 from curl_cffi.requests import Session as CffiSession
 from curl_cffi.requests.exceptions import RequestException as CffiRequestException
 
-from .brightdata import BrightDataConfig, build_brightdata_payload
+from .brightdata import (
+    BRIGHTDATA_BOOTSTRAP_URLS,
+    BrightDataConfig,
+    build_brightdata_payload,
+)
 from .constants import (
     CHROME_FULL_VERSION,
     CHROME_VERSION,
@@ -543,6 +547,8 @@ class MetaAdsClient:
         # Create new session with Chrome TLS impersonation
         self.session = CffiSession(impersonate="chrome")
         self.session.headers.update(self._fingerprint.get_default_headers())
+        if self._brightdata is not None:
+            self._brightdata_session = uuid.uuid4().hex
         self._tokens = {}
         self._initialized = False
         self._request_counter = 0
@@ -691,15 +697,44 @@ class MetaAdsClient:
             init_headers = dict(self._fingerprint.get_default_headers())
             init_headers["sec-fetch-site"] = "none"
 
-            response = self._make_request(
-                "GET",
-                self.HOME_URL,
-                headers=init_headers,
+            bootstrap_urls = (
+                BRIGHTDATA_BOOTSTRAP_URLS
+                if self._brightdata is not None
+                else (self.HOME_URL,)
             )
+            response = None
+            for attempt, bootstrap_url in enumerate(bootstrap_urls, start=1):
+                if self._brightdata is not None and attempt > 1:
+                    # A new session asks Web Unlocker for a fresh upstream
+                    # route instead of sticking to a node that returned
+                    # Facebook's HTTP-200 generic error page.
+                    self._brightdata_session = uuid.uuid4().hex
 
-            logger.debug(f"Homepage bootstrap status: {response.status_code}")
-            logger.debug(f"Response cookies: {list(self.session.cookies.keys())}")
+                response = self._make_request(
+                    "GET",
+                    bootstrap_url,
+                    headers=init_headers,
+                )
+                logger.debug(
+                    "Homepage bootstrap attempt %d/%d status: %s",
+                    attempt,
+                    len(bootstrap_urls),
+                    response.status_code,
+                )
+                logger.debug(f"Response cookies: {list(self.session.cookies.keys())}")
 
+                if response.status_code == 200:
+                    self._tokens = self._extract_tokens(response.text)
+                    if self._tokens.get("lsd"):
+                        break
+
+                logger.warning(
+                    "Homepage bootstrap attempt %d/%d returned no usable LSD token",
+                    attempt,
+                    len(bootstrap_urls),
+                )
+
+            assert response is not None
             if response.status_code != 200:
                 logger.error(f"Homepage bootstrap failed: {response.status_code}")
                 logger.debug(f"Response preview: {response.text[:500]}")
@@ -707,9 +742,6 @@ class MetaAdsClient:
                     f"Homepage bootstrap failed (HTTP {response.status_code}) "
                     "-- could not obtain tokens from facebook.com"
                 )
-
-            # Extract tokens from homepage HTML
-            self._tokens = self._extract_tokens(response.text)
 
             # Attempt to extract dynamic doc_ids from the page.
             # The homepage has no Ad Library doc_ids (returns {}), but
@@ -1113,6 +1145,27 @@ class MetaAdsClient:
             data = json.loads(text)
 
             logger.debug(f"Response keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
+
+            # Facebook sometimes returns its legacy error envelope with HTTP
+            # 200 instead of the GraphQL ``errors`` array.  Treating this as
+            # an empty success silently produces "Found 0 active ads".
+            legacy_error_code = data.get("error") if isinstance(data, dict) else None
+            if legacy_error_code:
+                error_msg = data.get("errorSummary") or data.get("errorDescription") or str(legacy_error_code)
+                logger.warning(
+                    "Facebook legacy GraphQL error %s: %s",
+                    legacy_error_code,
+                    error_msg,
+                )
+                if legacy_error_code == 1357054:
+                    self._refresh_session()
+                    return {
+                        "ads": [],
+                        "page_info": {},
+                        "session_expired": True,
+                        "error": error_msg,
+                    }, None
+                return {"ads": [], "page_info": {}, "error": error_msg}, None
 
             # Check for errors
             if "errors" in data:

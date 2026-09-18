@@ -1,3 +1,5 @@
+import json
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -70,3 +72,53 @@ async def test_async_client_routes_request_through_brightdata(monkeypatch):
     assert client._client.post.call_args.args[0] == "https://api.brightdata.com/request"
     assert kwargs["json"]["method"] == "POST"
     assert kwargs["json"]["body"] == "a=b"
+
+
+def test_sync_client_refreshes_on_legacy_graphql_session_error(monkeypatch):
+    monkeypatch.delenv("BRIGHTDATA_API_KEY", raising=False)
+    client = MetaAdsClient(brightdata_api_key="secret", max_retries=1)
+    client._initialized = True
+    client._init_time = time.time()
+    client._tokens = {"lsd": "real-token"}
+    response = MagicMock(
+        status_code=200,
+        text=json.dumps({
+            "__ar": 1,
+            "error": 1357054,
+            "errorSummary": "Your Request Couldn't be Processed",
+        }),
+    )
+    client._make_graphql_request = MagicMock(return_value=response)
+    client._refresh_session = MagicMock(return_value=True)
+
+    result, cursor = client.search_ads(page_ids=["123"])
+
+    assert result["session_expired"] is True
+    assert cursor is None
+    client._refresh_session.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_async_client_refreshes_on_legacy_graphql_session_error(monkeypatch):
+    monkeypatch.delenv("BRIGHTDATA_API_KEY", raising=False)
+    client = AsyncMetaAdsClient(brightdata_api_key="secret", max_retries=1)
+    client._initialized = True
+    client._init_time = time.time()
+    client._tokens = {"lsd": "real-token"}
+    response = MagicMock(
+        status_code=200,
+        text=json.dumps({
+            "__ar": 1,
+            "error": 1357054,
+            "errorSummary": "Your Request Couldn't be Processed",
+        }),
+    )
+    client._make_request = AsyncMock(return_value=response)
+    client._async_refresh_session = AsyncMock(return_value=True)
+    try:
+        result, cursor = await client.search_ads(page_ids=["123"])
+        assert result["session_expired"] is True
+        assert cursor is None
+        client._async_refresh_session.assert_awaited_once_with()
+    finally:
+        await client.close()
