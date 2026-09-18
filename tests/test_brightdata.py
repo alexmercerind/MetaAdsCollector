@@ -10,7 +10,7 @@ from meta_ads_collector.client import MetaAdsClient
 
 
 def test_build_payload_preserves_target_request():
-    config = BrightDataConfig("secret", "web_unlocker1")
+    config = BrightDataConfig("secret", "web_unlocker1", country="US")
     payload = build_brightdata_payload(
         config,
         "POST",
@@ -27,6 +27,7 @@ def test_build_payload_preserves_target_request():
         "format": "raw",
         "method": "POST",
         "session": "session-id",
+        "country": "us",
         "headers": {"x-test": "yes"},
         "body": "query=shoes&ids=1&ids=2",
     }
@@ -35,12 +36,14 @@ def test_build_payload_preserves_target_request():
 def test_config_reads_environment_when_constructed(monkeypatch):
     monkeypatch.setenv("BRIGHTDATA_API_KEY", "environment-key")
     monkeypatch.setenv("BRIGHTDATA_ZONE", "environment-zone")
+    monkeypatch.setenv("BRIGHTDATA_COUNTRY", "US")
 
     config = BrightDataConfig.from_values()
 
     assert config is not None
     assert config.api_key == "environment-key"
     assert config.zone == "environment-zone"
+    assert config.country == "US"
 
 
 def test_sync_client_routes_request_through_brightdata(monkeypatch):

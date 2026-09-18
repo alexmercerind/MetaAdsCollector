@@ -27,6 +27,7 @@ class BrightDataConfig:
     api_key: str
     zone: str = "web_unlocker1"
     endpoint: str = BRIGHTDATA_REQUEST_URL
+    country: str | None = None
 
     @classmethod
     def from_values(
@@ -34,6 +35,7 @@ class BrightDataConfig:
         api_key: str | None = None,
         zone: str | None = None,
         endpoint: str | None = None,
+        country: str | None = None,
     ) -> BrightDataConfig | None:
         key = api_key or os.environ.get("BRIGHTDATA_API_KEY")
         if not key:
@@ -44,6 +46,7 @@ class BrightDataConfig:
             endpoint=endpoint or os.environ.get(
                 "BRIGHTDATA_REQUEST_URL", BRIGHTDATA_REQUEST_URL
             ),
+            country=country or os.environ.get("BRIGHTDATA_COUNTRY") or None,
         )
 
     @property
@@ -79,6 +82,8 @@ def build_brightdata_payload(
     }
     if session:
         payload["session"] = session
+    if config.country:
+        payload["country"] = config.country.lower()
     if headers:
         payload["headers"] = dict(headers)
     if data is not None:
