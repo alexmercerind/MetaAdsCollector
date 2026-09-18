@@ -101,6 +101,35 @@ def test_sync_client_refreshes_on_legacy_graphql_session_error(monkeypatch):
     client._refresh_session.assert_called_once_with()
 
 
+def test_page_search_uses_view_all_page_id(monkeypatch):
+    monkeypatch.delenv("BRIGHTDATA_API_KEY", raising=False)
+    client = MetaAdsClient(max_retries=1)
+    client._initialized = True
+    client._init_time = time.time()
+    client._tokens = {"lsd": "real-token"}
+    response = MagicMock(
+        status_code=200,
+        text=json.dumps({
+            "data": {
+                "ad_library_main": {
+                    "search_results_connection": {
+                        "edges": [],
+                        "page_info": {"has_next_page": False},
+                    }
+                }
+            }
+        }),
+    )
+    client._make_graphql_request = MagicMock(return_value=response)
+
+    client.search_ads(search_type="PAGE", page_ids=["937407159454413"])
+
+    payload = client._make_graphql_request.call_args.args[0]
+    variables = json.loads(payload["variables"])
+    assert variables["viewAllPageID"] == "937407159454413"
+    assert variables["pageIDs"] == []
+
+
 @pytest.mark.asyncio
 async def test_async_client_refreshes_on_legacy_graphql_session_error(monkeypatch):
     monkeypatch.delenv("BRIGHTDATA_API_KEY", raising=False)

@@ -428,6 +428,42 @@ class TestSearchEventEmission:
         assert first_call.kwargs["session_id"] != second_call.kwargs["session_id"]
         assert first_call.kwargs["collation_token"] != second_call.kwargs["collation_token"]
 
+    def test_session_recovery_does_not_yield_duplicate_ads(self):
+        collector = self._make_collector()
+        collector.client.search_ads.side_effect = [
+            (
+                {"ads": [{"ad_archive_id": "ad-1"}], "page_info": {}},
+                "cursor-1",
+            ),
+            ({"ads": [], "page_info": {}, "session_expired": True}, None),
+            (
+                {
+                    "ads": [
+                        {"ad_archive_id": "ad-1"},
+                        {"ad_archive_id": "ad-2"},
+                    ],
+                    "page_info": {},
+                },
+                None,
+            ),
+        ]
+
+        ads = list(collector.search(query="test", country="US"))
+
+        assert [ad.id for ad in ads] == ["ad-1", "ad-2"]
+
+    def test_recovered_request_exception_is_not_counted_as_final_error(self):
+        collector = self._make_collector()
+        collector.client.search_ads.side_effect = [
+            ValueError("temporary malformed response"),
+            ({"ads": [{"ad_archive_id": "ad-1"}], "page_info": {}}, None),
+        ]
+
+        ads = list(collector.search(query="test", country="US"))
+
+        assert [ad.id for ad in ads] == ["ad-1"]
+        assert collector.stats["errors"] == 0
+
     def test_collection_finished_has_correct_totals(self):
         collector = self._make_collector()
         collector.client.search_ads.return_value = (

@@ -1068,7 +1068,7 @@ class MetaAdsClient:
             "location": None,
             "mediaType": media_type,
             "multiCountryFilterMode": None,
-            "pageIDs": page_ids or [],
+            "pageIDs": [] if search_type == "PAGE" else (page_ids or []),
             "potentialReachInput": [],
             "publisherPlatforms": [],
             "queryString": query,
@@ -1078,7 +1078,11 @@ class MetaAdsClient:
             "source": None,
             "startDate": None,
             "v": self._tokens.get("v", "fbece7"),
-            "viewAllPageID": "0",
+            "viewAllPageID": (
+                page_ids[0]
+                if search_type == "PAGE" and page_ids
+                else "0"
+            ),
         }
 
         # Only include sortData for SORT_BY_TOTAL_IMPRESSIONS.

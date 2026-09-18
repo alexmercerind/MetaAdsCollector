@@ -349,6 +349,7 @@ class MetaAdsCollector:
         cursor = None
         collected = 0
         page_number = 0
+        seen_ids: set[str] = set()
         search_start_time = time.monotonic()
 
         # Generate consistent session_id and collation_token for the entire search
@@ -452,13 +453,13 @@ class MetaAdsCollector:
 
                     except Exception as e:
                         logger.error(f"Search request failed: {e}")
-                        self.stats["errors"] += 1
                         self.event_emitter.emit(ERROR_OCCURRED, {
                             "exception": e,
                             "context": f"Search request failed on retry {retry_count + 1}",
                         })
                         retry_count += 1
                         if retry_count >= max_retries:
+                            self.stats["errors"] += 1
                             raise
                         time.sleep(3 * retry_count)
 
@@ -488,6 +489,12 @@ class MetaAdsCollector:
                     try:
                         ad = Ad.from_graphql_response(ad_data)
 
+                        # Session recovery can restart Meta's pagination and
+                        # replay earlier pages. Never yield the same archive
+                        # ID twice within one search.
+                        if ad.id in seen_ids:
+                            continue
+
                         # Skip already-seen ads
                         if dedup_tracker is not None and dedup_tracker.has_seen(ad.id):
                             continue
@@ -496,6 +503,7 @@ class MetaAdsCollector:
                         if filter_config is not None and not passes_filter(ad, filter_config):
                             continue
 
+                        seen_ids.add(ad.id)
                         collected += 1
                         self.stats["ads_collected"] += 1
 
