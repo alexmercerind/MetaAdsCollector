@@ -425,6 +425,11 @@ class MetaAdsCollector:
                         # we just need to retry the request
                         if response.get("session_expired"):
                             retry_count += 1
+                            # The search identifiers are stateful on Meta's
+                            # side. Reusing them after a failed session can
+                            # resume at a later slice and silently omit ads.
+                            search_session_id = str(uuid.uuid4())
+                            search_collation_token = str(uuid.uuid4())
                             self.event_emitter.emit(SESSION_REFRESHED, {
                                 "reason": "session_expired",
                             })

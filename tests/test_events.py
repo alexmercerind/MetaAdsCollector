@@ -424,6 +424,9 @@ class TestSearchEventEmission:
 
         assert len(events) == 1
         assert events[0].data["reason"] == "session_expired"
+        first_call, second_call = collector.client.search_ads.call_args_list
+        assert first_call.kwargs["session_id"] != second_call.kwargs["session_id"]
+        assert first_call.kwargs["collation_token"] != second_call.kwargs["collation_token"]
 
     def test_collection_finished_has_correct_totals(self):
         collector = self._make_collector()
